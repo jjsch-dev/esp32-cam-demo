@@ -1,6 +1,6 @@
 # ESP32 Camera Demo
 
-Code provided in this repository gets the image from camera and prints it out as ASCII art to the serial port.
+Code provided in this repository use the esp32-camera componet of idf for get the image using a webserver.
 
 ## Build Status
 
@@ -43,7 +43,7 @@ If you are an owner of [ESP-WROVER V1 (aka DevKitJ)](http://dl.espressif.com/dl/
 
 ### Camera
 
-This example has been tested with OV7725 camera module. Use it, if this is your first exposure to interfacing a microcontroller with a camera.
+This example has been tested with OV7670 camera module. Use it, if this is your first exposure to interfacing a microcontroller with a camera.
 
 Other OV7xxx series should work as well, with some changes to camera configuration code. OV5xxx can work too, but it is advisable to choose the ones which support RGB or YUV 8-bit wide output bus. The ones which only output 10-bit raw data may be a bit harder to work with. Also choose the camera which can output a scaled down (QVGA or VGA) image. Use of larger frame buffers will require external SPI RAM.
 
@@ -211,7 +211,7 @@ D (1887) camera_demo: Done
 
 ### Software
 
-The core of camera software is contained in `camera` folder and consists of the following files.
+The core of camera software is contained in `esp32-camera` folder and consists of the following files.
 
 * [camera.c](components/camera/camera.c) and [include/camera.h](components/camera/include/camera.h) - main file responsible for configuration of ESP32's GPIO, clock, I2S and DMA to interface with camera module. Once interface is established, it perfroms camera configuration to then retrieve image and save it in ESP32 memory. Access to camera is executed using lower level routines in the following files.
 
