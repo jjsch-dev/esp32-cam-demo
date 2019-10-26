@@ -109,7 +109,7 @@ void app_main()
     http_server_options_t http_options = HTTP_SERVER_OPTIONS_DEFAULT();
     ESP_ERROR_CHECK( http_server_start(&http_options, &server) );
 
-    // Convert the pcm grayscale to bmp.
+    // Convert the pcm grayscale to bmp and bmp_stream.
     if (camera_config.pixel_format == PIXFORMAT_GRAYSCALE) {
         ESP_ERROR_CHECK( http_register_handler(server, "/bmp", HTTP_GET, HTTP_HANDLE_RESPONSE, &handle_rgb_bmp, NULL) );
         ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for a single image/bmp gray image", IP2STR(&s_ip_addr));
