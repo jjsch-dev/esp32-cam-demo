@@ -1,17 +1,5 @@
 menu "ESP32 Camera Demo Configuration"
-
-config WIFI_SSID
-    string "WiFi SSID"
-    default ""
-    help
-        SSID (network name) for the demo to connect to.
-
-config WIFI_PASSWORD
-    string "WiFi Password"
-    default ""
-    help
-        Password for your network.
-        
+      
 config XCLK_FREQ
     int "XCLK Frequency"
     default "20000000"
