@@ -36,6 +36,9 @@
 #include "protocol_examples_common.h"
 #include <esp_http_server.h>
 
+
+#define ENABLE_TEST_PATTERN CONFIG_ENABLE_TEST_PATTERN
+
 static httpd_handle_t start_webserver(void);
 static void connect_handler(void* arg, esp_event_base_t event_base, 
                                int32_t event_id, void* event_data);
@@ -63,8 +66,6 @@ void app_main()
         ESP_ERROR_CHECK( nvs_flash_init() );
     }
 
-    ESP_ERROR_CHECK(gpio_install_isr_service(0));
-
     static camera_config_t camera_config = {
         .pin_pwdn  = -1,                        // power down is not used
         .pin_reset = CONFIG_RESET,              // software reset will be performed
@@ -89,7 +90,7 @@ void app_main()
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 
-        .pixel_format = /*PIXFORMAT_GRAYSCALE,*/ PIXFORMAT_RGB565, 
+        .pixel_format = /*PIXFORMAT_GRAYSCALE,*/ PIXFORMAT_RGB565, /* PIXFORMAT_RGB888,*/ 
         .frame_size = FRAMESIZE_QQVGA, /*FRAMESIZE_QVGA,*/     //QQVGA-QXGA Do not use sizes above QVGA when not JPEG
 
         .jpeg_quality = 12, //0-63 lower number means higher quality
@@ -101,6 +102,17 @@ void app_main()
         ESP_LOGE(TAG, "Camera init failed with error 0x%x", err);
         return;
     }
+
+#if ENABLE_TEST_PATTERN
+    /* Test pattern may get handy
+     if you are unable to get the live image right.
+     Once test pattern is enable, sensor will output
+     vertical shaded bars instead of live image.
+     */
+    sensor_t * sensor = esp_camera_sensor_get();
+    sensor->set_colorbar(sensor, 1);
+    ESP_LOGD(TAG, "Test pattern enabled");
+#endif
 
     tcpip_adapter_init();
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -164,6 +176,53 @@ esp_err_t err = ESP_OK;
         }
 
         err = httpd_resp_send_chunk(req, buf, size * 3);
+        x += size;
+    }
+
+    free( buf );
+
+    return err;
+}
+
+/* Convert the rgb565 format in a rgb bitmap */
+static esp_err_t write_rgb565_frame(httpd_req_t *req, camera_fb_t * fb)
+{
+char* buf;
+int x = 0;
+int size;
+esp_err_t err = ESP_OK;
+int rgb_index = 0;
+uint8_t hb;
+uint8_t lb;
+    
+    if (!fb) {
+        ESP_LOGE(TAG, "Camera Capture Failed");
+        return ESP_FAIL;
+    }
+
+    /* To save RAM send the converted image in chunks of 512 bytes. */
+    buf = malloc( BUFFER_LEN * 3 );
+    
+    if (!buf ) {
+        ESP_LOGE(TAG, "Dinamic memory failed");
+        return ESP_FAIL;    
+    }
+
+    while ( (x<fb->len) && (err == ESP_OK) ) {
+        size = (fb->len >= (BUFFER_LEN * 2)) ? (BUFFER_LEN * 2) : fb->len;       
+
+        rgb_index = 0;
+
+        /* Take two rgb565 bytes to build the rgb. */
+        for (int i=0; i<size; i+=2) {
+            hb = fb->buf[i + x];
+            lb = fb->buf[i + x + 1];
+            buf[ rgb_index++ ] = (lb & 0x1F) << 3;                      // red
+            buf[ rgb_index++ ] = (hb & 0x07) << 5 | (lb & 0xE0) >> 3;   // green
+            buf[ rgb_index++ ] = hb & 0xF8;                             // blue
+        }
+
+        err = httpd_resp_send_chunk(req, buf, rgb_index);
         x += size;
     }
 
@@ -249,6 +308,9 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
         /* convert an image with a gray format of 8 bits to a 24 bit bmp. */        
         if(sensor->pixformat == PIXFORMAT_GRAYSCALE){
             err = write_gray_frame(req, fb);
+        /* To save RAM and CPU in camera ISR use the rgb565 and convert to RGB in the APP */
+        }else if(sensor->pixformat == PIXFORMAT_RGB565){
+            err = write_rgb565_frame(req, fb);
         }else{
             err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
         }
@@ -338,6 +400,9 @@ static esp_err_t handle_rgb_bmp_stream(httpd_req_t *req)
             /* convert an image with a gray format of 8 bits to a 24 bit bmp. */            
             if(sensor->pixformat == PIXFORMAT_GRAYSCALE){
                 err = write_gray_frame(req, fb);
+            /* To save RAM and CPU in camera ISR use the rgb565 and convert to RGB in the APP */
+            }else if(sensor->pixformat == PIXFORMAT_RGB565){
+                err = write_rgb565_frame(req, fb);
             }else{
                 err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
             }
@@ -455,7 +520,7 @@ static httpd_handle_t start_webserver(void)
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for a single image/bmp gray image", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of gray bitmaps", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/pgm for a single image/x-portable-graymap image", IP2STR(&s_ip_addr));
-        } else if (sensor->pixformat == PIXFORMAT_RGB565) {
+        } else if ((sensor->pixformat == PIXFORMAT_RGB565) || (sensor->pixformat == PIXFORMAT_RGB888)) {
             httpd_register_uri_handler(server, &bmp);
             httpd_register_uri_handler(server, &bmp_stream);
             

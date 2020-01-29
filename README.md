@@ -1,6 +1,7 @@
 # ESP32 Camera Demo
 
 Code provided in this repository use the esp32-camera componet of idf for get the image using a webserver.
+The demonstration was carried out with the OV7670 sensor and the IDF 4.1 version. Use RGB565 mode (two bytes) to reduce the RAM used in the ISR. 
 
 ## Build Status
 
