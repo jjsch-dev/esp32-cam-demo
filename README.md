@@ -1,6 +1,7 @@
 # ESP32 Camera Demo
 
 Code provided in this repository use the esp32-camera componet of idf for get the image using a webserver.
+The demonstration was carried out with the OV7670 sensor and the IDF 4.1 version. Use RGB565 mode (two bytes) to reduce the RAM used in the ISR. 
 
 ## Build Status
 
@@ -32,6 +33,7 @@ To make this code work, you need the following components:
 * [ESP32](https://espressif.com/en/products/hardware/esp32/overview) module
 * Camera module
 * PC with [esp-idf](https://github.com/espressif/esp-idf)
+* Camera lib [esp32-camera](https://github.com/jjsch-dev/esp32-camera)
 
 See the following sections for more details.
 
@@ -50,6 +52,8 @@ Other OV7xxx series should work as well, with some changes to camera configurati
 ### ESP-IDF
 
 Configure your PC according to [ESP32 Documentation](http://esp-idf.readthedocs.io/en/latest/?badge=latest). [Windows](http://esp-idf.readthedocs.io/en/latest/windows-setup.html), [Linux](http://esp-idf.readthedocs.io/en/latest/linux-setup.html) and [Mac OS](http://esp-idf.readthedocs.io/en/latest/macos-setup.html) are supported. If this is you first exposure to ESP32 and [esp-idf](https://github.com/espressif/esp-idf), then get familiar with [01_hello_world](https://github.com/espressif/esp-idf/tree/master/examples/01_hello_world) and [02_blink](https://github.com/espressif/esp-idf/tree/master/examples/02_blink) examples. Make them work and understand before proceeding further.
+
+Don't forget to copy the lib [esp32-camera](https://github.com/jjsch-dev/esp32-camera) to the IDF components folder.
 
 ## Quick Start
 
