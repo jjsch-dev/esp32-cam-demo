@@ -33,6 +33,7 @@ To make this code work, you need the following components:
 * [ESP32](https://espressif.com/en/products/hardware/esp32/overview) module
 * Camera module
 * PC with [esp-idf](https://github.com/espressif/esp-idf)
+* Camera lib [esp32-camera](https://github.com/jjsch-dev/esp32-camera)
 
 See the following sections for more details.
 
