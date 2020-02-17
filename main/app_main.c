@@ -33,6 +33,7 @@
 #include "driver/gpio.h"
 #include "esp_camera.h"
 #include "bitmap.h"
+#include "esp_netif.h"
 #include "protocol_examples_common.h"
 #include <esp_http_server.h>
 
@@ -114,7 +115,7 @@ void app_main()
     ESP_LOGD(TAG, "Test pattern enabled");
 #endif
 
-    tcpip_adapter_init();
+    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
