@@ -37,8 +37,9 @@
 #include "protocol_examples_common.h"
 #include <esp_http_server.h>
 
-
-#define ENABLE_TEST_PATTERN CONFIG_ENABLE_TEST_PATTERN
+#define ENABLE_TEST_PATTERN         CONFIG_ENABLE_TEST_PATTERN
+#define ENABLE_VERTICAL_FLIP        CONFIG_ENABLE_VERTICAL_FLIP
+#define ENABLE_HORIZONTAL_MIRROR    CONFIG_ENABLE_HORIZONTAL_MIRROR
 
 static httpd_handle_t start_webserver(void);
 static void connect_handler(void* arg, esp_event_base_t event_base, 
@@ -91,8 +92,50 @@ void app_main()
         .ledc_timer = LEDC_TIMER_0,
         .ledc_channel = LEDC_CHANNEL_0,
 
-        .pixel_format = /*PIXFORMAT_GRAYSCALE,*/ PIXFORMAT_RGB565, /* PIXFORMAT_RGB888,*/ 
-        .frame_size = FRAMESIZE_QQVGA, /*FRAMESIZE_QVGA,*/     //QQVGA-QXGA Do not use sizes above QVGA when not JPEG
+    #if CONFIG_PIXFORMAT_RGB565
+        .pixel_format = PIXFORMAT_RGB565, 
+    #elif CONFIG_PIXFORMAT_YUV422
+        .pixel_format = PIXFORMAT_YUV422,
+    #elif CONFIG_PIXFORMAT_GRAYSCALE
+        .pixel_format = PIXFORMAT_GRAYSCALE,
+    #elif CONFIG_PIXFORMAT_JPEG
+        .pixel_format = PIXFORMAT_JPEG,
+    #elif CONFIG_PIXFORMAT_RGB888
+        .pixel_format = PIXFORMAT_RGB888,
+    #elif CONFIG_PIXFORMAT_RAW
+        .pixel_format = PIXFORMAT_RAW,
+    #elif CONFIG_PIXFORMAT_RGB444
+        .pixel_format = PIXFORMAT_RGB444,
+    #elif CONFIG_PIXFORMAT_RGB555
+        .pixel_format = PIXFORMAT_RGB55,
+    #endif
+
+    //QQVGA-QXGA Do not use sizes above QVGA when not JPEG
+    #if CONFIG_FRAMESIZE_96X96
+        .frame_size = FRAMESIZE_96X96,      
+    #elif CONFIG_FRAMESIZE_QQVGA
+        .frame_size = FRAMESIZE_QQVGA,
+    #elif CONFIG_FRAMESIZE_QCIF
+        .frame_size = FRAMESIZE_QCIF,
+    #elif CONFIG_FRAMESIZE_HQVGA
+        .frame_size = FRAMESIZE_HQVGA,
+    #elif CONFIG_FRAMESIZE_240X240
+        .frame_size = FRAMESIZE_240X240,
+    #elif CONFIG_FRAMESIZE_QVGA
+        .frame_size = FRAMESIZE_QVGA,
+    #elif CONFIG_FRAMESIZE_CIF
+        .frame_size = FRAMESIZE_CIF,
+    #elif CONFIG_FRAMESIZE_HVGA
+        .frame_size = FRAMESIZE_HVGA,
+    #elif CONFIG_FRAMESIZE_VGA
+        .frame_size = FRAMESIZE_VGA,
+    #elif CONFIG_FRAMESIZE_SVGA
+        .frame_size = FRAMESIZE_SVGA,
+    #elif CONFIG_FRAMESIZE_XGA
+        .frame_size = FRAMESIZE_XGA,
+    #elif CONFIG_FRAMESIZE_HD
+        .frame_size = FRAMESIZE_HD,
+    #endif
 
         .jpeg_quality = 12, //0-63 lower number means higher quality
         .fb_count = 1 //if more than one, i2s runs in continuous mode. Use only with JPEG
@@ -104,16 +147,30 @@ void app_main()
         return;
     }
 
+#if ENABLE_TEST_PATTERN || ENABLE_VERTICAL_FLIP || ENABLE_HORIZONTAL_MIRROR
+    sensor_t * sensor = esp_camera_sensor_get();
+#endif
+
 #if ENABLE_TEST_PATTERN
     /* Test pattern may get handy
      if you are unable to get the live image right.
      Once test pattern is enable, sensor will output
      vertical shaded bars instead of live image.
      */
-    sensor_t * sensor = esp_camera_sensor_get();
     sensor->set_colorbar(sensor, 1);
-    ESP_LOGD(TAG, "Test pattern enabled");
+    ESP_LOGI(TAG, "Test pattern enabled");
 #endif
+
+#if ENABLE_VERTICAL_FLIP
+    sensor->set_vflip(sensor, 1);
+    ESP_LOGI(TAG, "Vertical flip enabled");
+#endif
+
+#if ENABLE_HORIZONTAL_MIRROR
+    sensor->set_hmirror(sensor, 1);
+    ESP_LOGI(TAG, "Horizontal mirror enabled");
+#endif
+
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
