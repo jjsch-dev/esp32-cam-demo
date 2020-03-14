@@ -389,8 +389,12 @@ static esp_err_t handle_jpg(httpd_req_t *req)
 {
     esp_err_t err = ESP_OK;
     
+    uint64_t us_start = (uint64_t) esp_timer_get_time();
+
     //acquire a frame
     camera_fb_t * fb = esp_camera_fb_get();
+
+    uint64_t us_capture = (uint64_t) esp_timer_get_time();
 
     if (!fb) {
         ESP_LOGE(TAG, "Camera Capture Failed");
@@ -408,6 +412,13 @@ static esp_err_t handle_jpg(httpd_req_t *req)
     }
 
     esp_camera_fb_return(fb);
+
+    uint64_t us_end = (uint64_t) esp_timer_get_time();
+
+    ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS", 
+                  (int) (us_capture - us_start),
+                  (int) (us_end - us_capture),
+                  (int) (us_end - us_start));
 
     return err;
 }
@@ -487,8 +498,15 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
     err = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
 
     while (err == ESP_OK) {
+        uint64_t us_start = (uint64_t) esp_timer_get_time();
+
         //acquire a frame
         camera_fb_t * fb = esp_camera_fb_get();
+
+        uint64_t us_capture = (uint64_t) esp_timer_get_time();
+        
+        //acquire a frame
+        //camera_fb_t * fb = esp_camera_fb_get();
 
         if (!fb) {
             ESP_LOGE(TAG, "Camera Capture Failed");
@@ -510,6 +528,13 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
         }
 
         esp_camera_fb_return(fb);
+
+        uint64_t us_end = (uint64_t) esp_timer_get_time();
+
+        ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS", 
+                        (int) (us_capture - us_start),
+                        (int) (us_end - us_capture),
+                        (int) (us_end - us_start));
     }
     
     return err;
