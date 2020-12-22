@@ -25,7 +25,7 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_eth.h"
-#include "esp_event.h" 
+#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "nvs_flash.h"
@@ -42,9 +42,9 @@
 #define ENABLE_HORIZONTAL_MIRROR    CONFIG_ENABLE_HORIZONTAL_MIRROR
 
 static httpd_handle_t start_webserver(void);
-static void connect_handler(void* arg, esp_event_base_t event_base, 
+static void connect_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data);
-static void disconnect_handler(void* arg, esp_event_base_t event_base, 
+static void disconnect_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data);
 
 static const char* TAG = "camera_demo";
@@ -58,7 +58,7 @@ static const char* _STREAM_JPG_PART = "Content-Type: image/jpg\r\nContent-Length
 void app_main()
 {
     static httpd_handle_t server = NULL;
- 
+
     esp_log_level_set("wifi", ESP_LOG_WARN);
     esp_log_level_set("gpio", ESP_LOG_WARN);
 
@@ -93,7 +93,7 @@ void app_main()
         .ledc_channel = LEDC_CHANNEL_0,
 
     #if CONFIG_PIXFORMAT_RGB565
-        .pixel_format = PIXFORMAT_RGB565, 
+        .pixel_format = PIXFORMAT_RGB565,
     #elif CONFIG_PIXFORMAT_YUV422
         .pixel_format = PIXFORMAT_YUV422,
     #elif CONFIG_PIXFORMAT_GRAYSCALE
@@ -112,7 +112,7 @@ void app_main()
 
     //QQVGA-QXGA Do not use sizes above QVGA when not JPEG
     #if CONFIG_FRAMESIZE_96X96
-        .frame_size = FRAMESIZE_96X96,      
+        .frame_size = FRAMESIZE_96X96,
     #elif CONFIG_FRAMESIZE_QQVGA
         .frame_size = FRAMESIZE_QQVGA,
     #elif CONFIG_FRAMESIZE_QCIF
@@ -128,7 +128,7 @@ void app_main()
     #elif CONFIG_FRAMESIZE_HVGA
         .frame_size = FRAMESIZE_HVGA,
     #elif CONFIG_FRAMESIZE_VGA
-        .frame_size = FRAMESIZE_VGA,
+        .frame_size = FRAMESIZE_QCIF,
     #elif CONFIG_FRAMESIZE_SVGA
         .frame_size = FRAMESIZE_SVGA,
     #elif CONFIG_FRAMESIZE_XGA
@@ -202,86 +202,56 @@ void app_main()
 
 #define BUFFER_LEN 512
 
-/* Convert the pgm gray in a rgb bitmap */
-static esp_err_t write_gray_frame(httpd_req_t *req, camera_fb_t * fb)
+/* Convert the frame to a rgb bitmap */
+static esp_err_t write_frame(httpd_req_t *req, camera_fb_t * fb, pixformat_t pixformat)
 {
 char* buf;
-int x = 0;
-int size;
+int index = 0;
+int source_len;
+int rgb_len;
 esp_err_t err = ESP_OK;
-    
+
     if (!fb) {
         ESP_LOGE(TAG, "Camera Capture Failed");
         return ESP_FAIL;
     }
 
-    /* To save RAM send the converted image in chunks of 512 bytes. */
-    buf = malloc( BUFFER_LEN * 3 );
-    
-    if (!buf ) {
-        ESP_LOGE(TAG, "Dinamic memory failed");
-        return ESP_FAIL;    
-    }
-
-    while ( (x<fb->len) && (err == ESP_OK) ) {
-        size = (fb->len >= BUFFER_LEN) ? BUFFER_LEN : fb->len;       
-
-        /* To convert, match the RGB bytes to the value of the PGM byte. */
-        for (int i=0; i<size; i++) {
-            buf[i * 3 ] = fb->buf[i + x];
-            buf[(i * 3) + 1 ] = fb->buf[i + x];
-            buf[(i * 3) + 2 ] = fb->buf[i + x];        
-        }
-
-        err = httpd_resp_send_chunk(req, buf, size * 3);
-        x += size;
-    }
-
-    free( buf );
-
-    return err;
-}
-
-/* Convert the rgb565 format in a rgb bitmap */
-static esp_err_t write_rgb565_frame(httpd_req_t *req, camera_fb_t * fb)
-{
-char* buf;
-int x = 0;
-int size;
-esp_err_t err = ESP_OK;
-int rgb_index = 0;
-uint8_t hb;
-uint8_t lb;
-    
-    if (!fb) {
-        ESP_LOGE(TAG, "Camera Capture Failed");
+    /* Calculate the number of bytes to process for the RGB buffer. */
+    if (pixformat == PIXFORMAT_GRAYSCALE) {
+        source_len = BUFFER_LEN;
+        rgb_len = (BUFFER_LEN * 3);
+    }else if(pixformat == PIXFORMAT_RGB565) {
+        source_len = BUFFER_LEN * 2;
+        rgb_len = (BUFFER_LEN * 3);
+    }else if (pixformat == PIXFORMAT_YUV422) {
+        source_len = BUFFER_LEN * 2;
+        rgb_len = (BUFFER_LEN * 3);
+    }else{
+        ESP_LOGE(TAG, "invalid pixel format: %d", pixformat);
         return ESP_FAIL;
     }
 
-    /* To save RAM send the converted image in chunks of 512 bytes. */
-    buf = malloc( BUFFER_LEN * 3 );
-    
+    ESP_LOGI(TAG, "source len: %d RGB buffer len: %d", source_len, rgb_len);
+
+    buf = malloc( rgb_len );
+
     if (!buf ) {
         ESP_LOGE(TAG, "Dinamic memory failed");
-        return ESP_FAIL;    
+        return ESP_FAIL;
     }
 
-    while ( (x<fb->len) && (err == ESP_OK) ) {
-        size = (fb->len >= (BUFFER_LEN * 2)) ? (BUFFER_LEN * 2) : fb->len;       
+    while ( (fb->len > index) && (err == ESP_OK) ) {
 
-        rgb_index = 0;
-
-        /* Take two rgb565 bytes to build the rgb. */
-        for (int i=0; i<size; i+=2) {
-            hb = fb->buf[i + x];
-            lb = fb->buf[i + x + 1];
-            buf[ rgb_index++ ] = (lb & 0x1F) << 3;                      // red
-            buf[ rgb_index++ ] = (hb & 0x07) << 5 | (lb & 0xE0) >> 3;   // green
-            buf[ rgb_index++ ] = hb & 0xF8;                             // blue
+        if ((fb->len - index) < source_len) {
+            source_len = fb->len - index;
         }
 
-        err = httpd_resp_send_chunk(req, buf, rgb_index);
-        x += size;
+        if (fmt2rgb888((const uint8_t *) &fb->buf[index], source_len, pixformat, (uint8_t*)buf)) {
+            err = httpd_resp_send_chunk(req, buf, rgb_len);
+            index += source_len;
+        } else {
+            err = ESP_FAIL;
+        }
     }
 
     free( buf );
@@ -293,9 +263,9 @@ uint8_t lb;
 static esp_err_t handle_grayscale_pgm(httpd_req_t *req)
 {
     esp_err_t err = ESP_OK;
-    
+
     char pgm_header_str[64];
-    
+
     // acquire a frame
     camera_fb_t * fb = esp_camera_fb_get();
 
@@ -335,15 +305,17 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
 {
     esp_err_t err = ESP_OK;
 
+    ESP_LOGI(TAG, "Image captured begin");
+
     // acquire a frame
     camera_fb_t * fb = esp_camera_fb_get();
 
-    sensor_t * sensor = esp_camera_sensor_get();
-    
     if (!fb) {
         ESP_LOGE(TAG, "Camera Capture Failed");
         return ESP_FAIL;
     }
+
+    ESP_LOGI(TAG, "Image captured width: %d, heigth:%d, len: %d", fb->width, fb->height, fb->len);
 
     bitmap_header_t* header = bmp_create_header(fb->width, fb->height);
     if (header == NULL) {
@@ -351,7 +323,7 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
     }
 
     err = httpd_resp_set_type(req, "image/bmp");
-    
+
     if (err == ESP_OK){
         err = httpd_resp_set_hdr(req, "Content-disposition", "inline; filename=capture.bmp");
     }
@@ -362,15 +334,13 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
 
     free(header);
 
+    sensor_t * sensor = esp_camera_sensor_get();
+
     if (err == ESP_OK) {
-        /* convert an image with a gray format of 8 bits to a 24 bit bmp. */        
-        if(sensor->pixformat == PIXFORMAT_GRAYSCALE){
-            err = write_gray_frame(req, fb);
-        /* To save RAM and CPU in camera ISR use the rgb565 and convert to RGB in the APP */
-        }else if(sensor->pixformat == PIXFORMAT_RGB565){
-            err = write_rgb565_frame(req, fb);
-        }else{
+        if (sensor->pixformat == PIXFORMAT_RGB888) {
             err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
+        } else {
+            err = write_frame(req, fb, sensor->pixformat);
         }
     }
 
@@ -388,7 +358,7 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
 static esp_err_t handle_jpg(httpd_req_t *req)
 {
     esp_err_t err = ESP_OK;
-    
+
     uint64_t us_start = (uint64_t) esp_timer_get_time();
 
     //acquire a frame
@@ -415,7 +385,7 @@ static esp_err_t handle_jpg(httpd_req_t *req)
 
     uint64_t us_end = (uint64_t) esp_timer_get_time();
 
-    ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS", 
+    ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS",
                   (int) (us_capture - us_start),
                   (int) (us_end - us_capture),
                   (int) (us_end - us_start));
@@ -446,16 +416,21 @@ static esp_err_t handle_rgb_bmp_stream(httpd_req_t *req)
 
         if (!fb) {
             ESP_LOGE(TAG, "Camera Capture Failed");
-            err = ESP_FAIL;            
+            err = ESP_FAIL;
         }
 
         if (err == ESP_OK) {
             int len = fb->len;
 
-            if(sensor->pixformat == PIXFORMAT_GRAYSCALE){
+            ESP_LOGI(TAG, "Image captured width: %d, heigth:%d, len: %d", fb->width, fb->height, fb->len);
+
+            if (sensor->pixformat == PIXFORMAT_GRAYSCALE) {
                 len *= 3;
-            } 
-            
+            }
+            else if (sensor->pixformat == PIXFORMAT_YUV422) {
+                len *= 2;
+            }
+
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_BMP_PART, len + sizeof(*header));
 
             err = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
@@ -466,17 +441,13 @@ static esp_err_t handle_rgb_bmp_stream(httpd_req_t *req)
         }
 
         if (err == ESP_OK) {
-            /* convert an image with a gray format of 8 bits to a 24 bit bmp. */            
-            if(sensor->pixformat == PIXFORMAT_GRAYSCALE){
-                err = write_gray_frame(req, fb);
-            /* To save RAM and CPU in camera ISR use the rgb565 and convert to RGB in the APP */
-            }else if(sensor->pixformat == PIXFORMAT_RGB565){
-                err = write_rgb565_frame(req, fb);
-            }else{
+            if (sensor->pixformat == PIXFORMAT_RGB888) {
                 err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
+            } else {
+                err = write_frame(req, fb, sensor->pixformat);
             }
         }
-        
+
         if (err == ESP_OK) {
             err = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
         }
@@ -485,7 +456,7 @@ static esp_err_t handle_rgb_bmp_stream(httpd_req_t *req)
     }
 
     free(header);
- 
+
     return err;
 }
 
@@ -504,7 +475,7 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
         camera_fb_t * fb = esp_camera_fb_get();
 
         uint64_t us_capture = (uint64_t) esp_timer_get_time();
-        
+
         //acquire a frame
         //camera_fb_t * fb = esp_camera_fb_get();
 
@@ -522,7 +493,7 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
         if (err == ESP_OK) {
             err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
         }
-        
+
         if (err == ESP_OK) {
             err = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
         }
@@ -531,12 +502,12 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
 
         uint64_t us_end = (uint64_t) esp_timer_get_time();
 
-        ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS", 
+        ESP_LOGI(TAG, "JPG Capture time %d uS, send time %d uS, total %d uS",
                         (int) (us_capture - us_start),
                         (int) (us_end - us_capture),
                         (int) (us_end - us_start));
     }
-    
+
     return err;
 }
 
@@ -572,8 +543,8 @@ static const httpd_uri_t jpg_stream = {
 
 static ip4_addr_t get_ip_addr(void)
 {
-    tcpip_adapter_ip_info_t ip_info; 
-   	
+    tcpip_adapter_ip_info_t ip_info;
+
     // IP address.
     tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip_info);
 
@@ -594,7 +565,7 @@ static httpd_handle_t start_webserver(void)
         sensor_t * sensor = esp_camera_sensor_get();
 
         ip4_addr_t s_ip_addr = get_ip_addr();
-       
+
         if (sensor->pixformat == PIXFORMAT_GRAYSCALE) {
             httpd_register_uri_handler(server, &bmp);
             httpd_register_uri_handler(server, &bmp_stream);
@@ -603,16 +574,17 @@ static httpd_handle_t start_webserver(void)
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for a single image/bmp gray image", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of gray bitmaps", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/pgm for a single image/x-portable-graymap image", IP2STR(&s_ip_addr));
-        } else if ((sensor->pixformat == PIXFORMAT_RGB565) || (sensor->pixformat == PIXFORMAT_RGB888)) {
+        } else if ((sensor->pixformat == PIXFORMAT_RGB565) || (sensor->pixformat == PIXFORMAT_RGB888) ||
+                   (sensor->pixformat == PIXFORMAT_YUV422)) {
             httpd_register_uri_handler(server, &bmp);
             httpd_register_uri_handler(server, &bmp_stream);
-            
+
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for single image/bitmap image", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of bitmaps", IP2STR(&s_ip_addr));
         } else if (sensor->pixformat == PIXFORMAT_JPEG) {
-            httpd_register_uri_handler(server, &jpg);  
-            httpd_register_uri_handler(server, &jpg_stream);          
-     
+            httpd_register_uri_handler(server, &jpg);
+            httpd_register_uri_handler(server, &jpg_stream);
+
             ESP_LOGI(TAG, "Open http://" IPSTR "/jpg for single image/jpg image", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/jpg_stream for multipart/x-mixed-replace stream of JPEGs", IP2STR(&s_ip_addr));
         }
@@ -624,7 +596,7 @@ static httpd_handle_t start_webserver(void)
     return NULL;
 }
 
-static void disconnect_handler(void* arg, esp_event_base_t event_base, 
+static void disconnect_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data)
 {
     httpd_handle_t* server = (httpd_handle_t*) arg;
@@ -635,7 +607,7 @@ static void disconnect_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-static void connect_handler(void* arg, esp_event_base_t event_base, 
+static void connect_handler(void* arg, esp_event_base_t event_base,
                             int32_t event_id, void* event_data)
 {
     httpd_handle_t* server = (httpd_handle_t*) arg;
@@ -645,5 +617,3 @@ static void connect_handler(void* arg, esp_event_base_t event_base,
         *server = start_webserver();
     }
 }
-
-
