@@ -128,7 +128,7 @@ void app_main()
     #elif CONFIG_FRAMESIZE_HVGA
         .frame_size = FRAMESIZE_HVGA,
     #elif CONFIG_FRAMESIZE_VGA
-        .frame_size = FRAMESIZE_QCIF,
+        .frame_size = FRAMESIZE_VGA,
     #elif CONFIG_FRAMESIZE_SVGA
         .frame_size = FRAMESIZE_SVGA,
     #elif CONFIG_FRAMESIZE_XGA
@@ -354,12 +354,31 @@ static esp_err_t handle_rgb_bmp(httpd_req_t *req)
     return err;
 }
 
+typedef struct {
+        httpd_req_t *req;
+        size_t len;
+} jpg_chunking_t;
+
+static size_t jpg_encode_stream(void * arg, size_t index, const void* data, size_t len){
+    jpg_chunking_t *j = (jpg_chunking_t *)arg;
+    if(!index){
+        j->len = 0;
+    }
+    if(httpd_resp_send_chunk(j->req, (const char *)data, len) != ESP_OK){
+        return 0;
+    }
+    j->len += len;
+    return len;
+}
+
 /* HTTP jpg handler to take one picture */
 static esp_err_t handle_jpg(httpd_req_t *req)
 {
     esp_err_t err = ESP_OK;
 
     uint64_t us_start = (uint64_t) esp_timer_get_time();
+
+    size_t fb_len = 0;
 
     //acquire a frame
     camera_fb_t * fb = esp_camera_fb_get();
@@ -378,7 +397,15 @@ static esp_err_t handle_jpg(httpd_req_t *req)
     }
 
     if (err == ESP_OK) {
-       err = httpd_resp_send(req, (const char*)fb->buf, fb->len);
+        if(fb->format == PIXFORMAT_JPEG){
+            fb_len = fb->len;
+            err = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+        } else {
+            jpg_chunking_t jchunk = {req, 0};
+            err = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk)?ESP_OK:ESP_FAIL;
+            httpd_resp_send_chunk(req, NULL, 0);
+            fb_len = jchunk.len;
+        }
     }
 
     esp_camera_fb_return(fb);
@@ -463,6 +490,8 @@ static esp_err_t handle_rgb_bmp_stream(httpd_req_t *req)
 /* HTTP jpg stream handler */
 static esp_err_t handle_jpg_stream(httpd_req_t *req)
 {
+    size_t _jpg_buf_len;
+    uint8_t * _jpg_buf;
     esp_err_t err = ESP_OK;
     char * part_buf[64];
 
@@ -476,12 +505,21 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
 
         uint64_t us_capture = (uint64_t) esp_timer_get_time();
 
-        //acquire a frame
-        //camera_fb_t * fb = esp_camera_fb_get();
-
         if (!fb) {
             ESP_LOGE(TAG, "Camera Capture Failed");
             err = ESP_FAIL;
+        }
+
+        if(fb->format != PIXFORMAT_JPEG){
+           bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+           if(!jpeg_converted){
+               ESP_LOGE(TAG, "JPEG compression failed");
+               esp_camera_fb_return(fb);
+               err = ESP_FAIL;
+           }
+        } else {
+           _jpg_buf_len = fb->len;
+           _jpg_buf = fb->buf;
         }
 
         if (err == ESP_OK) {
@@ -491,7 +529,7 @@ static esp_err_t handle_jpg_stream(httpd_req_t *req)
         }
 
         if (err == ESP_OK) {
-            err = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
+            err = httpd_resp_send_chunk(req, (const char*)_jpg_buf, _jpg_buf_len);
         }
 
         if (err == ESP_OK) {
@@ -566,27 +604,19 @@ static httpd_handle_t start_webserver(void)
 
         ip4_addr_t s_ip_addr = get_ip_addr();
 
+        httpd_register_uri_handler(server, &bmp);
+        httpd_register_uri_handler(server, &bmp_stream);
+        httpd_register_uri_handler(server, &jpg);
+        httpd_register_uri_handler(server, &jpg_stream);
+
+        ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for a single image/bmp gray image", IP2STR(&s_ip_addr));
+        ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of gray bitmaps", IP2STR(&s_ip_addr));
+        ESP_LOGI(TAG, "Open http://" IPSTR "/jpg for single image/jpg image", IP2STR(&s_ip_addr));
+        ESP_LOGI(TAG, "Open http://" IPSTR "/jpg_stream for multipart/x-mixed-replace stream of JPEGs", IP2STR(&s_ip_addr));
+
         if (sensor->pixformat == PIXFORMAT_GRAYSCALE) {
-            httpd_register_uri_handler(server, &bmp);
-            httpd_register_uri_handler(server, &bmp_stream);
             httpd_register_uri_handler(server, &pgm);
-
-            ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for a single image/bmp gray image", IP2STR(&s_ip_addr));
-            ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of gray bitmaps", IP2STR(&s_ip_addr));
             ESP_LOGI(TAG, "Open http://" IPSTR "/pgm for a single image/x-portable-graymap image", IP2STR(&s_ip_addr));
-        } else if ((sensor->pixformat == PIXFORMAT_RGB565) || (sensor->pixformat == PIXFORMAT_RGB888) ||
-                   (sensor->pixformat == PIXFORMAT_YUV422)) {
-            httpd_register_uri_handler(server, &bmp);
-            httpd_register_uri_handler(server, &bmp_stream);
-
-            ESP_LOGI(TAG, "Open http://" IPSTR "/bmp for single image/bitmap image", IP2STR(&s_ip_addr));
-            ESP_LOGI(TAG, "Open http://" IPSTR "/bmp_stream for multipart/x-mixed-replace stream of bitmaps", IP2STR(&s_ip_addr));
-        } else if (sensor->pixformat == PIXFORMAT_JPEG) {
-            httpd_register_uri_handler(server, &jpg);
-            httpd_register_uri_handler(server, &jpg_stream);
-
-            ESP_LOGI(TAG, "Open http://" IPSTR "/jpg for single image/jpg image", IP2STR(&s_ip_addr));
-            ESP_LOGI(TAG, "Open http://" IPSTR "/jpg_stream for multipart/x-mixed-replace stream of JPEGs", IP2STR(&s_ip_addr));
         }
 
         return server;
